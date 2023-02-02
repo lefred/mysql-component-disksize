@@ -20,7 +20,6 @@
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
-
 #include <list>
 #include <string>
 #include <components/disksize/disksize.h>
@@ -41,18 +40,17 @@ REQUIRES_MYSQL_MUTEX_SERVICE_PLACEHOLDER;
 SERVICE_TYPE(log_builtins) * log_bi;
 SERVICE_TYPE(log_builtins_string) * log_bs;
 
-//static const char *READ_PRIVILEGE_NAME = "READ_DISKSIZE";
-
-
 PSI_mutex_key key_mutex_disksize_data = 0;
 PSI_mutex_info disksize_data_mutex[] = {
     {&key_mutex_disksize_data, "disksize_data", PSI_FLAG_SINGLETON, PSI_VOLATILITY_PERMANENT,
      "Disksize data, permanent mutex, singleton."}};
 
-bool have_required_privilege(void *opaque_thd) {
+bool have_required_privilege(void *opaque_thd)
+{
   // get the security context of the thread
   Security_context_handle ctx = nullptr;
-  if (mysql_service_mysql_thd_security_context->get(opaque_thd, &ctx) || !ctx) {
+  if (mysql_service_mysql_thd_security_context->get(opaque_thd, &ctx) || !ctx)
+  {
     LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
                     "problem trying to get security context");
     return false;
@@ -64,7 +62,6 @@ bool have_required_privilege(void *opaque_thd) {
 
   return false;
 }
-
 
 static mysql_service_status_t disksize_service_init()
 {
@@ -78,17 +75,17 @@ static mysql_service_status_t disksize_service_init()
   init_disksize_share(&disksize_st_share);
   share_list[0] = &disksize_st_share;
   if (mysql_service_pfs_plugin_table_v1->add_tables(&share_list[0],
-                                                      share_list_count))
+                                                    share_list_count))
   {
-        LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                        "PFS table has NOT been registered successfully!");
-        mysql_mutex_destroy(&LOCK_disksize_data);
-        return 1;
+    LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
+                    "PFS table has NOT been registered successfully!");
+    mysql_mutex_destroy(&LOCK_disksize_data);
+    return 1;
   }
   else
   {
-        LogComponentErr(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
-                        "PFS table has been registered successfully.");
+    LogComponentErr(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
+                    "PFS table has been registered successfully.");
   }
   // We need to add the content in the table
 
@@ -97,30 +94,29 @@ static mysql_service_status_t disksize_service_init()
 
 static mysql_service_status_t disksize_service_deinit()
 {
-    mysql_service_status_t result = 0;
+  mysql_service_status_t result = 0;
 
-    cleanup_disksize_data();
+  cleanup_disksize_data();
 
-    if (mysql_service_pfs_plugin_table_v1->delete_tables(&share_list[0],
-                                                         share_list_count))
-    {
-        LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
-                        "Error while trying to remove PFS table");
-        return 1;
-    }
-    else
-    {
-        LogComponentErr(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
-                        "PFS table has been removed successfully.");
-    }
+  if (mysql_service_pfs_plugin_table_v1->delete_tables(&share_list[0],
+                                                       share_list_count))
+  {
+    LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG,
+                    "Error while trying to remove PFS table");
+    return 1;
+  }
+  else
+  {
+    LogComponentErr(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG,
+                    "PFS table has been removed successfully.");
+  }
 
-    LogComponentErr(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG, "uninstalled.");
+  LogComponentErr(INFORMATION_LEVEL, ER_LOG_PRINTF_MSG, "uninstalled.");
 
-    mysql_mutex_destroy(&LOCK_disksize_data);
+  mysql_mutex_destroy(&LOCK_disksize_data);
 
-    return result;
+  return result;
 }
-
 
 BEGIN_COMPONENT_PROVIDES(disksize_service)
 END_COMPONENT_PROVIDES();
@@ -128,7 +124,7 @@ END_COMPONENT_PROVIDES();
 BEGIN_COMPONENT_REQUIRES(disksize_service)
 REQUIRES_SERVICE(component_sys_variable_register),
     REQUIRES_SERVICE(log_builtins),
-    REQUIRES_SERVICE(log_builtins_string), 
+    REQUIRES_SERVICE(log_builtins_string),
     REQUIRES_SERVICE(mysql_thd_security_context),
     REQUIRES_SERVICE(mysql_security_context_options),
     REQUIRES_SERVICE(global_grants_check),
@@ -149,7 +145,7 @@ METADATA("mysql.author", "Oracle Corporation"),
 /* Declaration of the Component. */
 DECLARE_COMPONENT(disksize_service,
                   "mysql:disksize_service")
-    disksize_service_init,
+disksize_service_init,
     disksize_service_deinit END_DECLARE_COMPONENT();
 
 /* Defines list of Components contained in this library. Note that for now

@@ -24,6 +24,7 @@
 
 #include <string>
 #include <vector>
+#include <tuple>
 #include <mysql/components/component_implementation.h>
 #include <mysql/components/service_implementation.h>
 #include <mysql/components/services/pfs_plugin_table_service.h>
@@ -75,7 +76,7 @@ extern bool have_required_privilege(void *opaque_thd);
 int disksize_prepare_insert_row();
 
 /* Maximum number of rows in the table */
-#define DISKSIZE_MAX_ROWS  10
+#define DISKSIZE_MAX_ROWS  100
 
 /* Global share pointer for pfs_example_disksize table */
 extern PFS_engine_table_share_proxy disksize_st_share;

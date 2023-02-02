@@ -19,6 +19,7 @@
 #include <components/disksize/disksize.h>
 
 #include <array>
+#include <sstream>
 
 #define LOG_COMPONENT_TAG "disksize"
 
@@ -29,33 +30,34 @@ REQUIRES_SERVICE_PLACEHOLDER_AS(pfs_plugin_column_string_v2, pfs_string);
 static char *disksize_file_value;
 
 // Declaration: Array of all variables we should parse
-std::vector<std::string> variables_to_parse {
-      "log_bin_basename",
-      "datadir",
-      "tmpdir",
-      "innodb_undo_directory",
-      "innodb_data_home_dir",
-      "innodb_log_group_home_dir",
-      "innodb_temp_tablespaces_dir",
-      "innodb_tmpdir",
-      "innodb_redo_log_archive_dirs",
-      "replica_load_tmpdir"
-      };
+std::vector<std::string> variables_to_parse{
+    "log_bin_basename",
+    "datadir",
+    "tmpdir",
+    "innodb_undo_directory",
+    "innodb_data_home_dir",
+    "innodb_log_group_home_dir",
+    "innodb_temp_tablespaces_dir",
+    "innodb_tmpdir",
+    "innodb_redo_log_archive_dirs",
+    "replica_load_tmpdir"};
 
-std::string getPathName(const std::string& s) {
+std::string getPathName(const std::string &s)
+{
 
-   char sep = '/';
+  char sep = '/';
 
 #ifdef _WIN32
-   sep = '\\';
+  sep = '\\';
 #endif
 
-   size_t i = s.rfind(sep, s.length());
-   if (i != std::string::npos) {
-      return(s.substr(0, i));
-   }
+  size_t i = s.rfind(sep, s.length());
+  if (i != std::string::npos)
+  {
+    return (s.substr(0, i));
+  }
 
-   return("");
+  return ("");
 }
 
 /*
@@ -67,16 +69,19 @@ static std::array<Disksize_record *, DISKSIZE_MAX_ROWS> disksize_array;
 /* Next available index for new record to be stored in global record array. */
 static size_t disksize_next_available_index = 0;
 
-void init_disksize_data() {
+void init_disksize_data()
+{
   mysql_mutex_lock(&LOCK_disksize_data);
   disksize_next_available_index = 0;
   disksize_array.fill(nullptr);
   mysql_mutex_unlock(&LOCK_disksize_data);
 }
 
-void cleanup_disksize_data() {
+void cleanup_disksize_data()
+{
   mysql_mutex_lock(&LOCK_disksize_data);
-  for (Disksize_record *disksize : disksize_array) {
+  for (Disksize_record *disksize : disksize_array)
+  {
     delete disksize;
   }
   mysql_mutex_unlock(&LOCK_disksize_data);
@@ -86,10 +91,11 @@ void cleanup_disksize_data() {
   DATA collection
 */
 
-void addDisksize_element(std::string disksize_dir_name, 
-                      std::string disksize_related_variable,
-                      PSI_ulonglong disksize_free_size,
-                      PSI_ulonglong disksize_total_size) {
+void addDisksize_element(std::string disksize_dir_name,
+                         std::string disksize_related_variable,
+                         PSI_ulonglong disksize_free_size,
+                         PSI_ulonglong disksize_total_size)
+{
   size_t index;
   Disksize_record *record;
 
@@ -98,7 +104,8 @@ void addDisksize_element(std::string disksize_dir_name,
   index = disksize_next_available_index++ % DISKSIZE_MAX_ROWS;
   record = disksize_array[index];
 
-  if (record != nullptr) {
+  if (record != nullptr)
+  {
     delete record;
   }
 
@@ -124,67 +131,155 @@ unsigned int share_list_count = 1;
 /* Global share pointer for a table */
 PFS_engine_table_share_proxy disksize_st_share;
 
-int disksize_delete_all_rows(void) {
+int disksize_delete_all_rows(void)
+{
   cleanup_disksize_data();
   return 0;
 }
 
-PSI_table_handle *disksize_open_table(PSI_pos **pos) {
+PSI_table_handle *disksize_open_table(PSI_pos **pos)
+{
   disksize_file_value = nullptr;
   char *value = nullptr;
   char buffer_for_value[1024];
   size_t value_length;
   char msgbuf[1024];
+  std::vector<std::tuple<std::string, std::string>> all_values_to_parse;
 
   init_disksize_data();
   MYSQL_THD thd;
+  disksize_delete_all_rows();
 
   mysql_service_mysql_current_thread_reader->get(&thd);
-  if(!have_required_privilege(thd)) {
-       mysql_error_service_printf(
-            ER_SPECIFIC_ACCESS_DENIED_ERROR, 0,
-            PRIVILEGE_NAME);
-  } else {
-    int j = 0;
+  if (!have_required_privilege(thd))
+  {
+    mysql_error_service_printf(
+        ER_SPECIFIC_ACCESS_DENIED_ERROR, 0,
+        PRIVILEGE_NAME);
+  }
+  else
+  {
     for (int i = 0; i < int(variables_to_parse.size()); i++)
     {
-        value = &buffer_for_value[0];
-        value_length = sizeof(buffer_for_value) - 1;
+      value = &buffer_for_value[0];
+      value_length = sizeof(buffer_for_value) - 1;
 
-        long long unsigned int size;
-        long long unsigned int free;
-        struct statvfs buf;
+      const char *var_to_get = variables_to_parse.operator[](i).c_str();
 
-        const char *var_to_get = variables_to_parse.operator[](i).c_str();
-
-        if (mysql_service_component_sys_variable_register->get_variable(
-                "mysql_server", var_to_get, (void **)&value, &value_length))
+      if (mysql_service_component_sys_variable_register->get_variable(
+              "mysql_server", var_to_get, (void **)&value, &value_length))
+      {
+        sprintf(msgbuf, "Could not get value of variable [%s]", var_to_get);
+        LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG, msgbuf);
+        continue;
+      }
+      if (strlen(value) > 0)
+      {
+        std::string path;
+        path = value;
+        // Let's check if we are looking for log_bin_basename
+        if (strcmp(var_to_get, "log_bin_basename") == 0)
         {
-            sprintf(msgbuf, "Could not get value of variable [%s]", var_to_get);
-            LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG, msgbuf);
-            continue;
+          path = getPathName(value);
         }
-        if (strlen(value) > 0)
+        if (path.find(';') != std::string::npos)
         {
-            std::string path;
-            path = value;
-            // Let's check if we are looking for log_bin_basename
-            if (strcmp(var_to_get, "log_bin_basename") == 0)
+          // we found ';' in the value, this means multiple
+          // paths may be included in this variable
+          std::istringstream list(path);
+          while (list)
+          {
+            std::string pathpart;
+            std::getline(list, pathpart, ';');
+            if (strlen(pathpart.c_str()) > 0)
             {
-            path = getPathName(value);
+              // we have an entry
+              // we need to check if there is a ':' in the value
+              if (pathpart.find(':') != std::string::npos)
+              {
+                // we found ':' in the split value too, we need then
+                // to split it once again, this is especially for
+                // innodb_redo_log_archive_dirs and labels
+                std::istringstream list2(pathpart);
+                int loop = 0;
+                std::string label;
+                while (list2)
+                {
+                  std::string labelpath;
+                  std::getline(list2, labelpath, ':');
+                  if (strlen(labelpath.c_str()) > 0)
+                  {
+                    // we have a label and a part
+                    if (loop == 0)
+                    {
+                      // we have a label
+                      // we concat the variable name + the label
+                      label = variables_to_parse.operator[](i) + " (" + labelpath + ")";
+                      loop++;
+                    }
+                    else
+                    {
+                      // we have a path
+                      loop--;
+                      all_values_to_parse.push_back(make_tuple(label, labelpath));
+                    }
+                  }
+                }
+              }
+              else
+              {
+                // we have some path delimited by ';'
+                all_values_to_parse.push_back(make_tuple(var_to_get, pathpart));
+              }
             }
-            // Now let's get the info from disk
-
-            if (statvfs(path.c_str(), &buf) == -1)
-            {
-              sprintf(msgbuf, "OS File access problem to %s", path.c_str());
-              LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG, msgbuf);
-              continue;
-            }
+          }
         }
-        else
-            continue;
-
+        else if (path.find(':') != std::string::npos) {
+          // we don't have any ';' but we have one entry with a label (':')
+          std::istringstream list(path);
+          int loop = 0;
+          std::string label;
+          while (list)
+          {
+            std::string pathpart;
+            std::getline(list, pathpart, ':');
+            if (strlen(pathpart.c_str()) > 0)
+            {
+                // we have a label and a part
+                if (loop == 0)
+                {
+                  // we have a label
+                  // we concat the variable name + the label
+                  label = variables_to_parse.operator[](i) + " (" + pathpart + ")";
+                  loop++;
+                }
+                else
+                {
+                  // we have a path
+                  loop--;
+                  all_values_to_parse.push_back(make_tuple(label, pathpart));
+                }
+            }
+          }
+        } else {
+          all_values_to_parse.push_back(make_tuple(var_to_get, path));
+        }
+      }
+    }
+      long long unsigned int size;
+      long long unsigned int free;
+      struct statvfs buf;
+      int j = 0;
+      for (int i = 0; i < int(all_values_to_parse.size()); i++)
+      {
+        std::tuple info_to_get = all_values_to_parse.operator[](i);
+        // Now let's get the info from disk
+        if (statvfs(std::get<1>(info_to_get).c_str(), &buf) == -1)
+        {
+          sprintf(msgbuf, "OS File access problem to %s", std::get<1>(info_to_get).c_str());
+          LogComponentErr(ERROR_LEVEL, ER_LOG_PRINTF_MSG, msgbuf);
+          continue;
+        }
         size = (long long unsigned int)buf.f_blocks * buf.f_bsize;
         free = (long long unsigned int)buf.f_bavail * buf.f_bsize;
 
@@ -194,9 +289,10 @@ PSI_table_handle *disksize_open_table(PSI_pos **pos) {
         psi_size_free = {free, false};
         psi_size_total = {size, false};
 
-        addDisksize_element(value, var_to_get, psi_size_free, psi_size_total);
+        addDisksize_element(std::get<1>(info_to_get), std::get<0>(info_to_get), psi_size_free, psi_size_total);
         j++;
-    }
+      }
+    
   }
   Disksize_Table_Handle *temp = new Disksize_Table_Handle();
   *pos = (PSI_pos *)(&temp->m_pos);
@@ -204,12 +300,14 @@ PSI_table_handle *disksize_open_table(PSI_pos **pos) {
   return (PSI_table_handle *)temp;
 }
 
-void disksize_close_table(PSI_table_handle *handle) {
+void disksize_close_table(PSI_table_handle *handle)
+{
   Disksize_Table_Handle *temp = (Disksize_Table_Handle *)handle;
   delete temp;
 }
 
-static void copy_record_disksize(Disksize_record *dest, const Disksize_record *source) {
+static void copy_record_disksize(Disksize_record *dest, const Disksize_record *source)
+{
   dest->disksize_dir_name = source->disksize_dir_name;
   dest->disksize_related_variable = source->disksize_related_variable;
   dest->disksize_dir_size_free = source->disksize_dir_size_free;
@@ -218,14 +316,17 @@ static void copy_record_disksize(Disksize_record *dest, const Disksize_record *s
 }
 
 /* Define implementation of PFS_engine_table_proxy. */
-int disksize_rnd_next(PSI_table_handle *handle) {
+int disksize_rnd_next(PSI_table_handle *handle)
+{
   Disksize_Table_Handle *h = (Disksize_Table_Handle *)handle;
   h->m_pos.set_at(&h->m_next_pos);
   size_t index = h->m_pos.get_index();
 
-  if (index < disksize_array.size()) {
+  if (index < disksize_array.size())
+  {
     Disksize_record *record = disksize_array[index];
-    if (record != nullptr) {
+    if (record != nullptr)
+    {
       /* Make the current row from records_array buffer */
       copy_record_disksize(&h->current_row, record);
       h->m_next_pos.set_after(&h->m_pos);
@@ -239,14 +340,17 @@ int disksize_rnd_next(PSI_table_handle *handle) {
 int disksize_rnd_init(PSI_table_handle *, bool) { return 0; }
 
 /* Set position of a cursor on a specific index */
-int disksize_rnd_pos(PSI_table_handle *handle) {
+int disksize_rnd_pos(PSI_table_handle *handle)
+{
   Disksize_Table_Handle *h = (Disksize_Table_Handle *)handle;
   size_t index = h->m_pos.get_index();
 
-  if (index < disksize_array.size()) {
+  if (index < disksize_array.size())
+  {
     Disksize_record *record = disksize_array[index];
 
-    if (record != nullptr) {
+    if (record != nullptr)
+    {
       /* Make the current row from records_array buffer */
       copy_record_disksize(&h->current_row, record);
     }
@@ -256,7 +360,8 @@ int disksize_rnd_pos(PSI_table_handle *handle) {
 }
 
 /* Reset cursor position */
-void disksize_reset_position(PSI_table_handle *handle) {
+void disksize_reset_position(PSI_table_handle *handle)
+{
   Disksize_Table_Handle *h = (Disksize_Table_Handle *)handle;
   h->m_pos.reset();
   h->m_next_pos.reset();
@@ -265,40 +370,43 @@ void disksize_reset_position(PSI_table_handle *handle) {
 
 /* Read current row from the current_row and display them in the table */
 int disksize_read_column_value(PSI_table_handle *handle, PSI_field *field,
-                            unsigned int index) {
+                               unsigned int index)
+{
   Disksize_Table_Handle *h = (Disksize_Table_Handle *)handle;
 
-  switch (index) {
-    case 0: /* DIR_NAME */
-        pfs_string->set_varchar_utf8mb4(
-            field, h->current_row.disksize_dir_name.c_str());
-        break;
-    case 1: /* RELATED_VARIABLE */
-        pfs_string->set_varchar_utf8mb4(
-            field, h->current_row.disksize_related_variable.c_str());
-        break;
-    case 2: /* FREE_SIZE */
-        pfs_bigint->set_unsigned(field, h->current_row.disksize_dir_size_free);
-        break;
-    case 3: /* TOTAL_SIZE */
-        pfs_bigint->set_unsigned(field, h->current_row.disksize_dir_size_total);
-        break;
-    default: /* We should never reach here */
-        //assert(0);
-        break;
+  switch (index)
+  {
+  case 0: /* DIR_NAME */
+    pfs_string->set_varchar_utf8mb4(
+        field, h->current_row.disksize_dir_name.c_str());
+    break;
+  case 1: /* RELATED_VARIABLE */
+    pfs_string->set_varchar_utf8mb4(
+        field, h->current_row.disksize_related_variable.c_str());
+    break;
+  case 2: /* FREE_SIZE */
+    pfs_bigint->set_unsigned(field, h->current_row.disksize_dir_size_free);
+    break;
+  case 3: /* TOTAL_SIZE */
+    pfs_bigint->set_unsigned(field, h->current_row.disksize_dir_size_total);
+    break;
+  default: /* We should never reach here */
+    // assert(0);
+    break;
   }
   return 0;
 }
 
 unsigned long long disksize_get_row_count(void) { return DISKSIZE_MAX_ROWS; }
 
-void init_disksize_share(PFS_engine_table_share_proxy *share) {
+void init_disksize_share(PFS_engine_table_share_proxy *share)
+{
   /* Instantiate and initialize PFS_engine_table_share_proxy */
   share->m_table_name = "disks_size";
   share->m_table_name_length = 10;
   share->m_table_definition =
-         "DIR_NAME char(255) not null, RELATED_VARIABLE char(60) not null, "
-         "FREE_SIZE bigint unsigned, TOTAL_SIZE bigint unsigned, PRIMARY KEY(DIR_NAME)";
+      "DIR_NAME char(255) not null, RELATED_VARIABLE char(60) not null, "
+      "FREE_SIZE bigint unsigned, TOTAL_SIZE bigint unsigned, PRIMARY KEY(DIR_NAME)";
   share->m_ref_length = sizeof(Disksize_POS);
   share->m_acl = READONLY;
   share->get_row_count = disksize_get_row_count;
