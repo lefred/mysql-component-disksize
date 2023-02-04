@@ -20,6 +20,9 @@
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#ifndef PLUGIN_COMPONENT_DISK_SIZE_H_
+#define PLUGIN_COMPONENT_DISK_SIZE_H_
+
 #define LOG_COMPONENT_TAG "disksize"
 
 #include <string>
@@ -35,6 +38,7 @@
 #include <mysql/components/services/log_builtins.h> /* LogComponentErr */
 #include <mysqld_error.h>                           /* Errors */
 #include <mysql/components/services/mysql_mutex.h>
+#include <mysql/components/services/psi_mutex.h>
 
 #ifndef _WIN32
 #include <sys/statvfs.h>
@@ -128,6 +132,8 @@ extern PFS_engine_table_share_proxy disksize_st_share;
 extern PFS_engine_table_share_proxy *share_list[];
 extern unsigned int share_list_count;
 
-static mysql_mutex_t LOCK_disksize_data;
+extern mysql_mutex_t LOCK_disksize_data;
 extern PSI_mutex_key key_mutex_disksize_data;
 extern PSI_mutex_info disksize_data_mutex[];
+
+#endif

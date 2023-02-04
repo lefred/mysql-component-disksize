@@ -16,7 +16,7 @@
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
-#include <components/disksize/disksize.h>
+#include "components/disksize/disksize.h"
 
 #include <array>
 #include <sstream>
@@ -69,22 +69,29 @@ static std::array<Disksize_record *, DISKSIZE_MAX_ROWS> disksize_array;
 /* Next available index for new record to be stored in global record array. */
 static size_t disksize_next_available_index = 0;
 
+class MutexGuard {
+ private:
+  mysql_mutex_t *m_mutex{nullptr};
+
+ public:
+  MutexGuard(mysql_mutex_t *mutex) : m_mutex(mutex) {
+    mysql_mutex_lock(m_mutex);
+  }
+  ~MutexGuard() { mysql_mutex_unlock(m_mutex); }
+};
+
 void init_disksize_data()
 {
-  mysql_mutex_lock(&LOCK_disksize_data);
+  MutexGuard guard(&LOCK_disksize_data);
   disksize_next_available_index = 0;
   disksize_array.fill(nullptr);
-  mysql_mutex_unlock(&LOCK_disksize_data);
 }
 
 void cleanup_disksize_data()
 {
-  mysql_mutex_lock(&LOCK_disksize_data);
+  MutexGuard guard(&LOCK_disksize_data);
   for (Disksize_record *disksize : disksize_array)
-  {
     delete disksize;
-  }
-  mysql_mutex_unlock(&LOCK_disksize_data);
 }
 
 /*
@@ -99,15 +106,13 @@ void addDisksize_element(std::string disksize_dir_name,
   size_t index;
   Disksize_record *record;
 
-  mysql_mutex_lock(&LOCK_disksize_data);
+  MutexGuard guard(&LOCK_disksize_data);
 
   index = disksize_next_available_index++ % DISKSIZE_MAX_ROWS;
   record = disksize_array[index];
 
   if (record != nullptr)
-  {
     delete record;
-  }
 
   record = new Disksize_record;
   record->disksize_dir_name = disksize_dir_name;
@@ -116,8 +121,6 @@ void addDisksize_element(std::string disksize_dir_name,
   record->disksize_dir_size_total = disksize_total_size;
 
   disksize_array[index] = record;
-
-  mysql_mutex_unlock(&LOCK_disksize_data);
 }
 
 /*
@@ -405,7 +408,7 @@ void init_disksize_share(PFS_engine_table_share_proxy *share)
   share->m_table_name = "disks_size";
   share->m_table_name_length = 10;
   share->m_table_definition =
-      "DIR_NAME char(255) not null, RELATED_VARIABLE char(60) not null, "
+      "DIR_NAME varchar(255) not null, RELATED_VARIABLE varchar(60) not null, "
       "FREE_SIZE bigint unsigned, TOTAL_SIZE bigint unsigned, PRIMARY KEY(DIR_NAME)";
   share->m_ref_length = sizeof(Disksize_POS);
   share->m_acl = READONLY;

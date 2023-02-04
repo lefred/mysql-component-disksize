@@ -34,6 +34,7 @@ REQUIRES_SERVICE_PLACEHOLDER(mysql_current_thread_reader);
 REQUIRES_SERVICE_PLACEHOLDER(mysql_security_context_options);
 REQUIRES_SERVICE_PLACEHOLDER(global_grants_check);
 REQUIRES_SERVICE_PLACEHOLDER(mysql_runtime_error);
+REQUIRES_PSI_MUTEX_SERVICE_PLACEHOLDER;
 
 REQUIRES_MYSQL_MUTEX_SERVICE_PLACEHOLDER;
 
@@ -44,6 +45,8 @@ PSI_mutex_key key_mutex_disksize_data = 0;
 PSI_mutex_info disksize_data_mutex[] = {
     {&key_mutex_disksize_data, "disksize_data", PSI_FLAG_SINGLETON, PSI_VOLATILITY_PERMANENT,
      "Disksize data, permanent mutex, singleton."}};
+
+mysql_mutex_t LOCK_disksize_data;
 
 bool have_required_privilege(void *opaque_thd)
 {
@@ -133,6 +136,7 @@ REQUIRES_SERVICE(component_sys_variable_register),
     REQUIRES_SERVICE(pfs_plugin_table_v1),
     REQUIRES_SERVICE_AS(pfs_plugin_column_bigint_v1, pfs_bigint),
     REQUIRES_SERVICE_AS(pfs_plugin_column_string_v2, pfs_string),
+    REQUIRES_PSI_MUTEX_SERVICE,
     REQUIRES_MYSQL_MUTEX_SERVICE,
     END_COMPONENT_REQUIRES();
 
